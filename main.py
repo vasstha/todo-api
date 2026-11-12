@@ -1,57 +1,104 @@
+import sqlite3
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-app = FastAPI()
 
-#1. Describe what a to do looks like
+app = FastAPI()
+DB_NAME = "todos.db"
+
+
+# -----------Database setup -------------------
+
+def get_connection():
+    """Open a connection to the database file."""
+    conn = sqlite3.connect(DB_NAME)
+    conn.row_factory = sqlite3.Row #lets us read columns by name
+    return conn
+
+def create_table():
+    """Create the todos table it it doesn't exist yet."""
+    conn = get_connection()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS todos(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            done INTEGER NOT NULL DEFAULT 0
+        )
+""")
+    conn.commit()
+    conn.close()
+
+
+create_table() #runs once when the server starts
+
+
+def row_to_dict(row):
+    """Turn a database row into a dictionary for JSON."""
+    return {"id": row["id"], "title": row["title"], "done":bool(row["done"])}
+
+#------------------Data Model -------------------
+
 class Todo(BaseModel):
     title: str
     done: bool = False
 
-#2. Our "database" for now: a simple list
-todos = []
 
-#3. GET all to-dos
+# ---------- Endpoints -----------------
+
 @app.get("/todos")
-
 def get_todos():
-    return todos
+    conn = get_connection()
+    rows = conn.execute("SELECT * FROM todos").fetchall()
+    conn.close()
+    return [row_to_dict(row) for row in rows]
 
-
-# 4. Get one to-do by its id
 @app.get("/todos/{todo_id}")
-
 def get_todo(todo_id: int):
-    if todo_id < 0 or todo_id >= len(todos):
-        raise HTTPException(status_code = 404, detail="Todo not found")
-    return todos[todo_id]
+    conn = get_connection()
+    row = conn.execute("SELECT * FROM todos WHERE ID = ?", (todo_id,)).fetchone()
+    #the ? marks are important. Never put user input directly into SQL text like 
+    #f"... WHERE id = {todo_id}". The ? placeholders let SQLite insert the values 
+    # safely, which protects against an attack called SQL injection.
+    conn.close()
+    if row is None:
+        raise HTTPException(status_code = 404, detail = "Todo not found")
+    return row_to_dict(row)
 
-#5. POST: create a new to-do
-@app.post("/todos", status_code=201)
+@app.post("/todos", status_code = 201)
 def create_todo(todo: Todo):
-    todos.append(todo)
-    return{"id": len(todos) -1, "todo": todo}
+    conn = get_connection()
+    cursor = conn.execute(
+        "INSERT INTO todos(title, done) VALUES (?, ?)",
+        (todo.title, todo.done)
 
-# 6. PUT: update an existing to-do
+    )
+    conn.commit()
+    new_id = cursor.lastrowid
+    conn.close()
+    return{"id":new_id, "title":todo.title, "done":todo.done}
+
+
 @app.put("/todos/{todo_id}")
 def update_todo(todo_id: int, updated: Todo):
-    if todo_id < 0 or todo_id >= len(todos):
-        raise HTTPException(status_code=404, detail="Todo not found")
-    todos[todo_id] = updated
-    return updated
+    conn = get_connection()
+    cursor = conn.execute(
+        "UPDATE todos SET title = ?, done = ? WHERE id = ?",
+        (updated.title, updated.done, todo_id),
+    )
+    conn.commit()
+    conn.close()
+    if cursor.rowcount == 0:
+        raise HTTPException(status_code=404, detail ="Todo not found")
+    return {"id":todo_id, "title":updated.title, "done":updated.done}
 
-#7. Delete: remove a to-do
+
 @app.delete("/todos/{todo_id}")
-def delete_todo(todo_id: int):
-    if todo_id < 0 or todo_id >= len(todos):
+def delete_todo(todo_id:int):
+    conn = get_connection()
+    cursor = conn.execute("DELETE FROM toods WHERE id = ?", (todo_id,))
+    conn.commit()
+    conn.close()
+
+    if cursor.rowcount == 0:
         raise HTTPException(status_code=404, detail = "Todo not found")
-    removed = todos.pop(todo_id)
-    return {"delted": removed}
-
-
-#8. GET only the to-dos that are done
-@app.get("/todos/done/list")
-def get_done_todos():
-    done_todos = [todo for todo in todos if todo.done]
-    return done_todos
-
+    return {"deleted_id": todo_id}
