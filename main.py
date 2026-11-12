@@ -47,3 +47,11 @@ def delete_todo(todo_id: int):
         raise HTTPException(status_code=404, detail = "Todo not found")
     removed = todos.pop(todo_id)
     return {"delted": removed}
+
+
+#8. GET only the to-dos that are done
+@app.get("/todos/done/list")
+def get_done_todos():
+    done_todos = [todo for todo in todos if todo.done]
+    return done_todos
+
