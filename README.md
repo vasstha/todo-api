@@ -21,3 +21,6 @@ Then open http://127.0.0.1:8000/docs
 
 
 Data is stored in a local SQLite database (tools.db).
+
+
+- `GET /todos` – list all to-dos (filter with `?done=true` or `?done=false`)

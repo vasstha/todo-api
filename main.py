@@ -46,9 +46,14 @@ class Todo(BaseModel):
 # ---------- Endpoints -----------------
 
 @app.get("/todos")
-def get_todos():
+def get_todos(done: bool | None = None):
     conn = get_connection()
-    rows = conn.execute("SELECT * FROM todos").fetchall()
+    if done is None:
+        rows = conn.execute("SELECT * FROM todos").fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM todos WHERE done = ?", (done,)
+        ).fetchall()
     conn.close()
     return [row_to_dict(row) for row in rows]
 
